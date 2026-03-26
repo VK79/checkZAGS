@@ -1,0 +1,197 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>Верификация номера актовой записи ЗАГС</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+<div class="container-fluid mt-4">
+    <h2 class="mb-4 text-primary">Верификация номера актовой записи ЗАГС</h2>
+
+    <div class="row">
+        <!-- Левая колонка -->
+        <div class="col-md-6">
+            <!-- Проверка одного номера -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <strong>Проверка одной записи</strong>
+                </div>
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" id="singleNumber" class="form-control" placeholder="Введите 21 цифру" />
+                        <button class="btn btn-success" onclick="verifySingle()">Проверить</button>
+                    </div>
+                    <div id="singleResult" class="alert d-none"></div>
+                </div>
+            </div>
+
+            <!-- Проверка группы номеров -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <strong>Проверка группы записей</strong>
+                </div>
+                <div class="card-body">
+                    <textarea id="multipleNumbers" class="form-control mb-3" rows="6" placeholder="Введите номера через запятую, точку с запятой или с новой строки"></textarea>
+                    <button class="btn btn-success mb-3" onclick="verifyMultiple()">Проверить</button>
+                    <div class="result-box">
+                        <pre id="csvResult" class="bg-light p-3 border rounded" style="max-height: 300px; overflow-y: auto;"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Кнопка сохранения -->
+            <button id="saveBtn" class="btn btn-outline-primary mb-4 d-none" onclick="saveCSV()">
+                <i class="fas fa-download"></i> Сохранить в .csv
+            </button>
+        </div>
+
+        <!-- Правая колонка — Детали -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-light">
+                    <strong>Дополнительная информация</strong>
+                </div>
+                <div class="card-body">
+                    <div id="detailsList" class="mb-3">
+                        <!-- Кнопки навигации -->
+                        <div class="btn-group mb-3" role="group">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="prevRecord()">&lt; Назад</button>
+                            <span id="currentIndex" class="px-3 py-1 bg-secondary text-white rounded">0/0</span>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="nextRecord()">Вперёд &gt;</button>
+                        </div>
+
+                        <table class="table table-sm table-bordered">
+                            <tr><th>Номер записи</th><td id="detail-number">—</td></tr>
+                            <tr><th>Раздел ЕГР</th><td id="detail-razdel">—</td></tr>
+                            <tr><th>Тип записи</th><td id="detail-tip">—</td></tr>
+                            <tr><th>Год</th><td id="detail-god">—</td></tr>
+                            <tr><th>Код органа ЗАГС</th><td id="detail-kod">—</td></tr>
+                            <tr><th>Наименование</th><td id="detail-name">—</td></tr>
+                            <tr><th>Адрес</th><td id="detail-address">—</td></tr>
+                            <tr><th>Телефон</th><td id="detail-tel">—</td></tr>
+                            <tr><th>Порядковый номер</th><td id="detail-poryad">—</td></tr>
+                            <tr><th>Доп.признак</th><td id="detail-dop">—</td></tr>
+                            <tr><th>Контрольная сумма</th><td id="detail-check">—</td></tr>
+                            <tr><th>Валиден</th><td id="detail-valid">—</td></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let allResults = [];
+
+function verifySingle() {
+    const num = document.getElementById('singleNumber').value.trim();
+    if (!num) return alert("Введите номер");
+
+    fetch('/verify_single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: num })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const resEl = document.getElementById('singleResult');
+        resEl.classList.remove('d-none', 'alert-success', 'alert-danger');
+        if (data.valid) {
+            resEl.classList.add('alert-success');
+            resEl.innerHTML = `<i class="fas fa-check-circle text-success"></i> Верифицирован`;
+            updateDetails([data], 0);
+            allResults = [data];
+            updateNav();
+        } else {
+            resEl.classList.add('alert-danger');
+            resEl.innerHTML = `<i class="fas fa-times-circle text-danger"></i> Не верифицирован: ${data.details?.error || 'Ошибка'}`;
+        }
+    });
+}
+
+function verifyMultiple() {
+    const text = document.getElementById('multipleNumbers').value;
+    fetch('/verify_multiple', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers: text })
+    })
+    .then(r => r.json())
+    .then(data => {
+        allResults = data.results;
+        document.getElementById('csvResult').textContent = data.csv;
+        document.getElementById('saveBtn').classList.remove('d-none');
+        updateNav();
+        if (allResults.length > 0) updateDetails(allResults, 0);
+    });
+}
+
+function updateNav() {
+    const idx = document.getElementById('currentIndex');
+    idx.textContent = `${allResults.length > 0 ? currentIdx + 1 : 0}/${allResults.length}`;
+}
+
+let currentIdx = 0;
+
+function updateDetails(results, idx) {
+    if (results.length === 0) return;
+    const r = results[idx];
+    const d = r.details;
+    document.getElementById('detail-number').textContent = r.number;
+    document.getElementById('detail-razdel').textContent = d.razdel || '—';
+    document.getElementById('detail-tip').textContent = `${d.tip_zapisi} (${d.tip_name})`;
+    document.getElementById('detail-god').textContent = `20${String(d.god).padStart(3, '0')}`;
+    document.getElementById('detail-kod').textContent = d.kod_organa;
+    document.getElementById('detail-name').textContent = d.organ_name;
+    document.getElementById('detail-address').textContent = d.organ_address;
+    document.getElementById('detail-tel').textContent = d.organ_tel;
+    document.getElementById('detail-poryad').textContent = String(d.poryadkovy_nomer).padStart(5, '0');
+    document.getElementById('detail-dop').textContent = d.dop_priznak;
+    document.getElementById('detail-check').textContent = `${d.calculated_check} == ${d.actual_check}`;
+    const validEl = document.getElementById('detail-valid');
+    if (r.valid) {
+        validEl.innerHTML = '<i class="fas fa-check text-success"></i> Да';
+    } else {
+        validEl.innerHTML = '<i class="fas fa-times text-danger"></i> Нет';
+    }
+}
+
+function nextRecord() {
+    if (allResults.length === 0) return;
+    currentIdx = (currentIdx + 1) % allResults.length;
+    updateDetails(allResults, currentIdx);
+    updateNav();
+}
+
+function prevRecord() {
+    if (allResults.length === 0) return;
+    currentIdx = (currentIdx - 1 + allResults.length) % allResults.length;
+    updateDetails(allResults, currentIdx);
+    updateNav();
+}
+
+function saveCSV() {
+    const csv = document.getElementById('csvResult').textContent;
+    fetch('/download_csv', {
+        method: 'POST',
+        body: new URLSearchParams({ csv_data: csv })
+    })
+    .then(response => response.blob())
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'verification_results.csv';
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+    });
+}
+</script>
+</body>
+</html>
