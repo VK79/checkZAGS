@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>Верификация номера актовой записи ЗАГС</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
+    <style>
+        #resultsTbody tr {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .selected-row {
+            background-color: #d1ecf1 !important;
+            font-weight: bold;
+        }
+        .detail-label {
+            width: 180px;
+        }
+        .search-box {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 6px;
+            background: #f8f9fa;
+        }
+    </style>
+</head>
+<body>
+<div class="container-fluid mt-4">
+    <h2 class="mb-4 text-primary">Верификация номера актовой записи ЗАГС</h2>
+
+    <div class="row">
+        <!-- Левая колонка -->
+        <div class="col-md-6">
+            <!-- Проверка одной записи -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <strong>Проверка одной записи</strong>
+                </div>
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" id="singleNumber" class="form-control" placeholder="Введите 21 цифру" maxlength="21"/>
+                        <button class="btn btn-success" onclick="verifySingle()">Проверить</button>
+                    </div>
+                    <div id="singleResult" class="alert d-none"></div>
+                </div>
+            </div>
+
+            <!-- Групповая проверка -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <strong>Проверка группы записей</strong>
+                </div>
+                <div class="card-body">
+                    <textarea id="multipleNumbers" class="form-control mb-3" rows="6"
+                              placeholder="123456789012345678901&#10;987654321098765432109"></textarea>
+                    <button class="btn btn-success mb-3" onclick="verifyMultiple()">Проверить</button>
+
+                    <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
+                        <table class="table table-sm table-bordered table-hover" id="resultsTable">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Номер</th>
+                                    <th>Результат</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resultsTbody"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="mt-3">
+                        <button class="btn btn-outline-primary me-2" onclick="saveCSV()" disabled id="saveCsvBtn">
+                            <i class="fas fa-download"></i> Сохранить в .csv
+                        </button>
+                        <button class="btn btn-outline-info" onclick="saveJSON()" disabled id="saveJsonBtn">
+                            <i class="fas fa-file-code"></i> Сохранить в .json
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Правая колонка -->
+        <div class="col-md-6">
+            <!-- Поиск по коду органа (сверху) -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <strong>Поиск по коду органа</strong>
+                </div>
+                <div class="card-body search-box">
+                    <div class="input-group mb-3">
+                        <input type="text" id="orgCode" class="form-control" placeholder='R1200013 или 91200013'>
+                        <button class="btn btn-secondary" onclick="searchOrg()">Найти</button>
+                    </div>
+                    <div id="orgResults" class="list-group" style="max-height: 200px; overflow-y: auto;"></div>
+                </div>
+            </div>
+
+            <!-- Дополнительная информация -->
+            <div class="card">
+                <div class="card-header bg-light">
+                    <strong>Дополнительная информация</strong>
+                </div>
+                <div class="card-body">
+                    <div class="btn-group mb-3" role="group">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="prevRecord()">&lt; Назад</button>
+                        <span id="currentIndex" class="px-3 py-1 bg-secondary text-white rounded">0/0</span>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="nextRecord()">Вперёд &gt;</button>
+                    </div>
+
+                    <table class="table table-sm">
+                        <tr><th class="detail-label">Номер записи</th><td id="detail-number">—</td></tr>
+                        <tr><th>Раздел ЕГР</th><td id="detail-razdel">—</td></tr>
+                        <tr><th>Тип записи</th><td id="detail-tip">—</td></tr>
+                        <tr><th>Год</th><td id="detail-god">—</td></tr>
+                        <tr><th>Код органа ЗАГС</th><td id="detail-kod">—</td></tr>
+                        <tr><th>Наименование</th><td id="detail-name">—</td></tr>
+                        <tr><th>Адрес</th><td id="detail-address">—</td></tr>
+                        <tr><th>Телефон</th><td id="detail-tel">—</td></tr>
+                        <tr><th>Порядковый номер</th><td id="detail-poryad">—</td></tr>
+                        <tr><th>Доп.признак</th><td id="detail-dop">—</td></tr>
+                        <tr><th>Контрольная сумма</th><td id="detail-check">—</td></tr>
+                        <tr><th>Валиден</th><td id="detail-valid">—</td></tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let allResults = [];
+let currentIdx = -1;
+
+function verifySingle() {
+    const num = document.getElementById('singleNumber').value.trim();
+    if (!num) return alert("Введите номер");
+
+    fetch('/verify_single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: num })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const resEl = document.getElementById('singleResult');
+        resEl.classList.remove('d-none');
+        if (data.valid) {
+            resEl.className = 'alert alert-success';
+            resEl.innerHTML = '<i class="fas fa-check-circle"></i> Верифицирован';
+            allResults = [data];
+            renderTable();
+            selectRow(0);
+        } else {
+            resEl.className = 'alert alert-danger';
+            resEl.innerHTML = '<i class="fas fa-times-circle"></i> Ошибка: ' + (data.details?.error || 'неверный формат');
+        }
+    });
+}
+
+function verifyMultiple() {
+    const text = document.getElementById('multipleNumbers').value.trim();
+    if (!text) return;
+
+    fetch('/verify_multiple', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers: text })
+    })
+    .then(r => r.json())
+    .then(data => {
+        allResults = data.results;
+        renderTable();
+        document.getElementById('saveCsvBtn').disabled = false;
+        document.getElementById('saveJsonBtn').disabled = false;
+        if (allResults.length > 0) {
+            selectRow(0);
+        } else {
+            clearDetails();
+        }
+    })
+    .catch(err => {
+        console.error("Ошибка проверки:", err);
+    });
+}
+
+function renderTable() {
+    const tbody = document.getElementById('resultsTbody');
+    tbody.innerHTML = '';
+
+    allResults.forEach((item, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${item.number}</td>
+            <td>${item.valid ? '✅ Да' : '❌ Нет'}</td>
+        `;
+        tr.dataset.index = i;
+        tr.addEventListener('click', () => selectRow(i));
+        tbody.appendChild(tr);
+    });
+}
+
+function selectRow(index) {
+    if (index < 0 || index >= allResults.length) return;
+
+    document.querySelectorAll('#resultsTbody tr').forEach(tr => {
+        tr.classList.remove('selected-row');
+    });
+
+    const row = document.querySelector(`#resultsTbody tr[data-index="${index}"]`);
+    if (row) {
+        row.classList.add('selected-row');
+    }
+
+    currentIdx = index;
+    updateNav();
+    fillDetails(allResults[index]);
+}
+
+function fillDetails(result) {
+    if (!result || !result.details) return clearDetails();
+
+    const d = result.details;
+    setText('detail-number', result.number);
+    setText('detail-razdel', d.razdel);
+    setText('detail-tip', `${d.tip_zapisi} (${d.tip_name})`);
+    setText('detail-god', `2${String(d.god).padStart(3, '0')}`);
+    setText('detail-kod', d.kod_organa);
+    setText('detail-name', d.organ_name);
+    setText('detail-address', d.organ_address);
+    setText('detail-tel', d.organ_tel);
+    setText('detail-poryad', String(d.poryadkovy_nomer).padStart(5, '0'));
+    setText('detail-dop', d.dop_priznak);
+    setText('detail-check', `${d.calculated_check} == ${d.actual_check}`);
+    setHTML('detail-valid', result.valid
+        ? '<i class="fas fa-check text-success"></i> Да'
+        : '<i class="fas fa-times text-danger"></i> Нет');
+}
+
+function clearDetails() {
+    ['number', 'razdel', 'tip', 'god', 'kod', 'name', 'address', 'tel', 'poryad', 'dop', 'check', 'valid']
+        .forEach(id => setText('detail-' + id, '—'));
+}
+
+function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value || '—';
+}
+
+function setHTML(id, html) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+}
+
+function updateNav() {
+    document.getElementById('currentIndex').textContent = allResults.length
+        ? `${currentIdx + 1}/${allResults.length}`
+        : '0/0';
+}
+
+function nextRecord() {
+    if (allResults.length === 0) return;
+    selectRow((currentIdx + 1) % allResults.length);
+}
+
+function prevRecord() {
+    if (allResults.length === 0) return;
+    selectRow((currentIdx - 1 + allResults.length) % allResults.length);
+}
+
+function saveCSV() {
+    fetch('/verify_multiple', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers: document.getElementById('multipleNumbers').value })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'verification_results.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    })
+    .catch(err => alert("Ошибка экспорта CSV: " + err));
+}
+
+function saveJSON() {
+    fetch('/verify_multiple', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers: document.getElementById('multipleNumbers').value })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const blob = new Blob([data.json], { type: 'application/json;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'verification_details.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    })
+    .catch(err => alert("Ошибка экспорта JSON: " + err));
+}
+
+function searchOrg() {
+    const query = document.getElementById('orgCode').value.trim();
+    if (!query) return;
+
+    fetch('/search_org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query })
+    })
+    .then(r => r.json())
+    .then(results => {
+        const container = document.getElementById('orgResults');
+        container.innerHTML = '';
+        if (results.length === 0) {
+            container.innerHTML = '<div class="list-group-item">Не найдено</div>';
+            return;
+        }
+        results.forEach(org => {
+            const div = document.createElement('div');
+            div.className = 'list-group-item';
+            div.innerHTML = `
+                <strong>${org.kod}</strong><br>
+                ${org.name || '—'}<br>
+                <small>${org.address || '—'}</small><br>
+                <em>${org.tel || '—'}</em>
+            `;
+            container.appendChild(div);
+        });
+    })
+    .catch(err => {
+        console.error("Ошибка поиска:", err);
+    });
+}
+
+function verifySingle() {
+    const num = document.getElementById('singleNumber').value.trim();
+    if (!num) {
+        alert("Введите номер");
+        return;
+    }
+
+    fetch('/verify_single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: num })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const resEl = document.getElementById('singleResult');
+        resEl.classList.remove('d-none');
+
+        if (data.valid) {
+            resEl.className = 'alert alert-success';
+            resEl.innerHTML = '<i class="fas fa-check-circle"></i> Верифицирован';
+            allResults = [data];
+            renderTable();
+            selectRow(0); // Показываем детали
+        } else {
+            resEl.className = 'alert alert-danger';
+            resEl.innerHTML = '<i class="fas fa-times-circle"></i> Ошибка: ' + (data.details?.error || 'неверный формат');
+            allResults = []; // Убираем предыдущие результаты
+            clearDetails(); // 🔴 Очищаем доп. информацию
+            renderTable(); // Обновляем таблицу (пустая)
+        }
+    });
+}
+</script>
+</body>
+</html>
