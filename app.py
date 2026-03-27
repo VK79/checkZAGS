@@ -151,15 +151,38 @@ def verify_single():
     data = request.get_json()
     num_str = data.get('number', '').strip()
 
+    # Проверка на пустой ввод
+    if not num_str:
+        return jsonify({
+            "valid": False,
+            "number": "",
+            "details": {"error": "Поле не должно быть пустым"}
+        })
+
     if not num_str.isdigit():
-        return jsonify({"valid": False, "error": "Введите только цифры"})
+        return jsonify({
+            "valid": False,
+            "number": num_str,
+            "details": {"error": "Введите только цифры"}
+        })
+
+    if len(num_str) != 21:
+        return jsonify({
+            "valid": False,
+            "number": num_str,
+            "details": {"error": "Номер должен содержать ровно 21 цифру"}
+        })
 
     try:
         num = int(num_str)
         result = verify_zags(num, verbose=True)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"valid": False, "error": str(e)})
+        return jsonify({
+            "valid": False,
+            "number": num_str,
+            "details": {"error": str(e)}
+        })
 
 
 @app.route('/verify_multiple', methods=['POST'])
@@ -175,14 +198,29 @@ def verify_multiple():
         if not n:
             continue
         if not n.isdigit():
-            results.append({"number": n, "valid": False, "error": "Не цифры"})
+            results.append({
+                "number": n,
+                "valid": False,
+                "details": {"error": "Содержит нецифровые символы"}
+            })
+            continue
+        if len(n) != 21:
+            results.append({
+                "number": n,
+                "valid": False,
+                "details": {"error": "Должно быть 21 цифра"}
+            })
             continue
         try:
             num = int(n)
-            res = verify_zags(num, verbose=True)  # Теперь возвращаем details
-            results.append(res)  # Полная структура: number, valid, details
+            res = verify_zags(num, verbose=True)
+            results.append(res)
         except Exception as e:
-            results.append({"number": n, "valid": False, "details": {"error": str(e)}})
+            results.append({
+                "number": n,
+                "valid": False,
+                "details": {"error": str(e)}
+            })
 
     # CSV: только номер + результат
     output_csv = StringIO()
@@ -260,5 +298,4 @@ def search_org():
 
 
 if __name__ == '__main__':
-    # app.run(debug=True)
     app.run(host='0.0.0.0', port=5000, debug=False)

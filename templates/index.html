@@ -343,6 +343,39 @@ function searchOrg() {
         console.error("Ошибка поиска:", err);
     });
 }
+
+function verifySingle() {
+    const num = document.getElementById('singleNumber').value.trim();
+    if (!num) {
+        alert("Введите номер");
+        return;
+    }
+
+    fetch('/verify_single', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ number: num })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const resEl = document.getElementById('singleResult');
+        resEl.classList.remove('d-none');
+
+        if (data.valid) {
+            resEl.className = 'alert alert-success';
+            resEl.innerHTML = '<i class="fas fa-check-circle"></i> Верифицирован';
+            allResults = [data];
+            renderTable();
+            selectRow(0); // Показываем детали
+        } else {
+            resEl.className = 'alert alert-danger';
+            resEl.innerHTML = '<i class="fas fa-times-circle"></i> Ошибка: ' + (data.details?.error || 'неверный формат');
+            allResults = []; // Убираем предыдущие результаты
+            clearDetails(); // 🔴 Очищаем доп. информацию
+            renderTable(); // Обновляем таблицу (пустая)
+        }
+    });
+}
 </script>
 </body>
 </html>
