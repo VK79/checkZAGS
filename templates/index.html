@@ -8,12 +8,20 @@
     <style>
         #resultsTbody tr {
             cursor: pointer;
+            transition: background-color 0.2s;
         }
         .selected-row {
             background-color: #d1ecf1 !important;
+            font-weight: bold;
         }
         .detail-label {
             width: 180px;
+        }
+        .search-box {
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 6px;
+            background: #f8f9fa;
         }
     </style>
 </head>
@@ -38,7 +46,7 @@
                 </div>
             </div>
 
-            <!-- Проверка группы записей -->
+            <!-- Групповая проверка -->
             <div class="card mb-4">
                 <div class="card-header bg-light">
                     <strong>Проверка группы записей</strong>
@@ -48,9 +56,8 @@
                               placeholder="123456789012345678901&#10;987654321098765432109"></textarea>
                     <button class="btn btn-success mb-3" onclick="verifyMultiple()">Проверить</button>
 
-                    <!-- Таблица результатов -->
                     <div class="table-responsive" style="max-height: 300px; overflow-y: auto;">
-                        <table class="table table-sm table-bordered" id="resultsTable">
+                        <table class="table table-sm table-bordered table-hover" id="resultsTable">
                             <thead class="table-light">
                                 <tr>
                                     <th>Номер</th>
@@ -60,23 +67,41 @@
                             <tbody id="resultsTbody"></tbody>
                         </table>
                     </div>
+
+                    <div class="mt-3">
+                        <button class="btn btn-outline-primary me-2" onclick="saveCSV()" disabled id="saveCsvBtn">
+                            <i class="fas fa-download"></i> Сохранить в .csv
+                        </button>
+                        <button class="btn btn-outline-info" onclick="saveJSON()" disabled id="saveJsonBtn">
+                            <i class="fas fa-file-code"></i> Сохранить в .json
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Правая колонка -->
+        <div class="col-md-6">
+            <!-- Поиск по коду органа (сверху) -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <strong>Поиск по коду органа</strong>
+                </div>
+                <div class="card-body search-box">
+                    <div class="input-group mb-3">
+                        <input type="text" id="orgCode" class="form-control" placeholder='R1200013 или 91200013'>
+                        <button class="btn btn-secondary" onclick="searchOrg()">Найти</button>
+                    </div>
+                    <div id="orgResults" class="list-group" style="max-height: 200px; overflow-y: auto;"></div>
                 </div>
             </div>
 
-            <!-- Кнопка сохранения -->
-            <button id="saveBtn" class="btn btn-outline-primary mb-4 d-none" onclick="saveCSV()">
-                <i class="fas fa-download"></i> Сохранить в .csv
-            </button>
-        </div>
-
-        <!-- Правая колонка — Детали -->
-        <div class="col-md-6">
+            <!-- Дополнительная информация -->
             <div class="card">
                 <div class="card-header bg-light">
                     <strong>Дополнительная информация</strong>
                 </div>
                 <div class="card-body">
-                    <!-- Кнопки навигации -->
                     <div class="btn-group mb-3" role="group">
                         <button class="btn btn-sm btn-outline-secondary" onclick="prevRecord()">&lt; Назад</button>
                         <span id="currentIndex" class="px-3 py-1 bg-secondary text-white rounded">0/0</span>
@@ -104,10 +129,9 @@
 </div>
 
 <script>
-let allResults = [];  // Все результаты
-let currentIdx = -1;  // Индекс текущей выбранной записи
+let allResults = [];
+let currentIdx = -1;
 
-// === Проверка одного номера ===
 function verifySingle() {
     const num = document.getElementById('singleNumber').value.trim();
     if (!num) return alert("Введите номер");
@@ -134,7 +158,6 @@ function verifySingle() {
     });
 }
 
-// === Проверка группы ===
 function verifyMultiple() {
     const text = document.getElementById('multipleNumbers').value.trim();
     if (!text) return;
@@ -148,76 +171,70 @@ function verifyMultiple() {
     .then(data => {
         allResults = data.results;
         renderTable();
-        document.getElementById('saveBtn').classList.remove('d-none');
+        document.getElementById('saveCsvBtn').disabled = false;
+        document.getElementById('saveJsonBtn').disabled = false;
         if (allResults.length > 0) {
             selectRow(0);
         } else {
             clearDetails();
         }
+    })
+    .catch(err => {
+        console.error("Ошибка проверки:", err);
     });
 }
 
-// === Отображение таблицы результатов ===
 function renderTable() {
     const tbody = document.getElementById('resultsTbody');
     tbody.innerHTML = '';
+
     allResults.forEach((item, i) => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${item.number}</td><td>${item.valid ? '✅ Да' : '❌ Нет'}</td>`;
+        tr.innerHTML = `
+            <td>${item.number}</td>
+            <td>${item.valid ? '✅ Да' : '❌ Нет'}</td>
+        `;
         tr.dataset.index = i;
         tr.addEventListener('click', () => selectRow(i));
         tbody.appendChild(tr);
     });
 }
 
-// === Выбор строки по индексу ===
 function selectRow(index) {
     if (index < 0 || index >= allResults.length) return;
 
-    // Снимаем выделение
     document.querySelectorAll('#resultsTbody tr').forEach(tr => {
         tr.classList.remove('selected-row');
     });
 
-    // Устанавливаем на текущую
     const row = document.querySelector(`#resultsTbody tr[data-index="${index}"]`);
-    if (row) row.classList.add('selected-row');
+    if (row) {
+        row.classList.add('selected-row');
+    }
 
     currentIdx = index;
     updateNav();
     fillDetails(allResults[index]);
 }
 
-// === Заполнение полей деталей ===
 function fillDetails(result) {
-    if (!result) return clearDetails();
+    if (!result || !result.details) return clearDetails();
 
-    // Полная детальная информация доступна только при одиночной проверке.
-    // При групповой — её нет в `/verify_multiple`, поэтому делаем допрос.
-    fetch('/verify_single', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ number: result.number })
-    })
-    .then(r => r.json())
-    .then(detail => {
-        const d = detail.details;
-        setText('detail-number', detail.number);
-        setText('detail-razdel', d.razdel);
-        setText('detail-tip', `${d.tip_zapisi} (${d.tip_name})`);
-        setText('detail-god', `20${String(d.god).padStart(3, '0')}`);
-        setText('detail-kod', d.kod_organa);
-        setText('detail-name', d.organ_name);
-        setText('detail-address', d.organ_address);
-        setText('detail-tel', d.organ_tel);
-        setText('detail-poryad', String(d.poryadkovy_nomer).padStart(5, '0'));
-        setText('detail-dop', d.dop_priznak);
-        setText('detail-check', `${d.calculated_check} == ${d.actual_check}`);
-        setHTML('detail-valid', detail.valid
-            ? '<i class="fas fa-check text-success"></i> Да'
-            : '<i class="fas fa-times text-danger"></i> Нет');
-    })
-    .catch(() => clearDetails());
+    const d = result.details;
+    setText('detail-number', result.number);
+    setText('detail-razdel', d.razdel);
+    setText('detail-tip', `${d.tip_zapisi} (${d.tip_name})`);
+    setText('detail-god', `2${String(d.god).padStart(3, '0')}`);
+    setText('detail-kod', d.kod_organa);
+    setText('detail-name', d.organ_name);
+    setText('detail-address', d.organ_address);
+    setText('detail-tel', d.organ_tel);
+    setText('detail-poryad', String(d.poryadkovy_nomer).padStart(5, '0'));
+    setText('detail-dop', d.dop_priznak);
+    setText('detail-check', `${d.calculated_check} == ${d.actual_check}`);
+    setHTML('detail-valid', result.valid
+        ? '<i class="fas fa-check text-success"></i> Да'
+        : '<i class="fas fa-times text-danger"></i> Нет');
 }
 
 function clearDetails() {
@@ -226,11 +243,13 @@ function clearDetails() {
 }
 
 function setText(id, value) {
-    document.getElementById(id).textContent = value || '—';
+    const el = document.getElementById(id);
+    if (el) el.textContent = value || '—';
 }
 
 function setHTML(id, html) {
-    document.getElementById(id).innerHTML = html;
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
 }
 
 function updateNav() {
@@ -250,21 +269,79 @@ function prevRecord() {
 }
 
 function saveCSV() {
-    let csv = 'Номер актовой записи;результат\n';
-    allResults.forEach(r => {
-        csv += `${r.number};${r.valid ? 'True' : 'False'}\n`;
-    });
+    fetch('/verify_multiple', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers: document.getElementById('multipleNumbers').value })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const blob = new Blob([data.csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'verification_results.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    })
+    .catch(err => alert("Ошибка экспорта CSV: " + err));
+}
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'verification_results.csv';
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+function saveJSON() {
+    fetch('/verify_multiple', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numbers: document.getElementById('multipleNumbers').value })
+    })
+    .then(r => r.json())
+    .then(data => {
+        const blob = new Blob([data.json], { type: 'application/json;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'verification_details.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    })
+    .catch(err => alert("Ошибка экспорта JSON: " + err));
+}
+
+function searchOrg() {
+    const query = document.getElementById('orgCode').value.trim();
+    if (!query) return;
+
+    fetch('/search_org', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query })
+    })
+    .then(r => r.json())
+    .then(results => {
+        const container = document.getElementById('orgResults');
+        container.innerHTML = '';
+        if (results.length === 0) {
+            container.innerHTML = '<div class="list-group-item">Не найдено</div>';
+            return;
+        }
+        results.forEach(org => {
+            const div = document.createElement('div');
+            div.className = 'list-group-item';
+            div.innerHTML = `
+                <strong>${org.kod}</strong><br>
+                ${org.name || '—'}<br>
+                <small>${org.address || '—'}</small><br>
+                <em>${org.tel || '—'}</em>
+            `;
+            container.appendChild(div);
+        });
+    })
+    .catch(err => {
+        console.error("Ошибка поиска:", err);
+    });
 }
 </script>
 </body>

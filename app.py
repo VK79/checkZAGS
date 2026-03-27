@@ -1,4 +1,3 @@
-# app.py
 from flask import Flask, render_template, request, jsonify, send_file
 import json
 import re
@@ -9,11 +8,10 @@ from io import StringIO
 
 app = Flask(__name__)
 
-# === КОПИЯ ВАШЕЙ ФУНКЦИИ verify_zags и load_zags_spравочник ===
+# === ЗАГРУЗКА СПРАВОЧНИКА ЗАГС ===
 ZAGS_SPRAVKA = {}
 
 def load_zags_spravochnik(filename: str = "1.2.643.5.1.13.13.99.2.832_3.6.json") -> Dict[str, Dict]:
-    """Загружает справочник органов ЗАГС из JSON"""
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             data = json.load(f)
@@ -63,8 +61,8 @@ def load_zags_spravochnik(filename: str = "1.2.643.5.1.13.13.99.2.832_3.6.json")
 
 ZAGS_SPRAVKA = load_zags_spravochnik()
 
+
 def verify_zags(num_az: int, verbose: bool = False) -> Dict:
-    """Расширенная верификация с детальной информацией"""
     s = f"{num_az:021d}"
     result = {
         "valid": False,
@@ -147,6 +145,7 @@ def verify_zags(num_az: int, verbose: bool = False) -> Dict:
 def index():
     return render_template('index.html')
 
+
 @app.route('/verify_single', methods=['POST'])
 def verify_single():
     data = request.get_json()
@@ -162,11 +161,11 @@ def verify_single():
     except Exception as e:
         return jsonify({"valid": False, "error": str(e)})
 
+
 @app.route('/verify_multiple', methods=['POST'])
 def verify_multiple():
     data = request.get_json()
     numbers_text = data.get('numbers', '')
-    # Разделители: запятые, точки с запятой, переносы строк
     separators = r'[,;\n\r]+'
     num_list = re.split(separators, numbers_text.strip())
     results = []
@@ -180,25 +179,28 @@ def verify_multiple():
             continue
         try:
             num = int(n)
-            res = verify_zags(num)
-            results.append({
-                "number": n,
-                "valid": res["valid"]
-            })
-        except:
-            results.append({"number": n, "valid": False})
+            res = verify_zags(num, verbose=True)  # Теперь возвращаем details
+            results.append(res)  # Полная структура: number, valid, details
+        except Exception as e:
+            results.append({"number": n, "valid": False, "details": {"error": str(e)}})
 
-    # Генерация CSV в памяти
-    output = StringIO()
-    writer = csv.writer(output, delimiter=';')
+    # CSV: только номер + результат
+    output_csv = StringIO()
+    writer = csv.writer(output_csv, delimiter=';')
     writer.writerow(['Номер актовой записи', 'результат'])
     for r in results:
         writer.writerow([r['number'], 'True' if r['valid'] else 'False'])
 
+    # JSON: все детали
+    output_json = StringIO()
+    json.dump(results, output_json, ensure_ascii=False, indent=2)
+
     return jsonify({
         "results": results,
-        "csv": output.getvalue()
+        "csv": output_csv.getvalue(),
+        "json": output_json.getvalue()
     })
+
 
 @app.route('/download_csv', methods=['POST'])
 def download_csv():
@@ -206,17 +208,55 @@ def download_csv():
     if not csv_data:
         return "No data", 400
 
-    output = StringIO()
-    output.write(csv_data)
-    output.seek(0)
-
+    stream = StringIO(csv_data)
     return send_file(
-        StringIO(output.getvalue()),
+        stream,
         mimetype='text/csv',
         as_attachment=True,
         download_name='verification_results.csv',
         etag=False
     )
+
+
+@app.route('/download_json', methods=['POST'])
+def download_json():
+    json_data = request.form.get('json_data', '')
+    if not json_data:
+        return "No data", 400
+
+    stream = StringIO(json_data)
+    return send_file(
+        stream,
+        mimetype='application/json',
+        as_attachment=True,
+        download_name='verification_details.json',
+        etag=False
+    )
+
+
+@app.route('/search_org', methods=['POST'])
+def search_org():
+    data = request.get_json()
+    query = data.get('query', '').strip()
+
+    if not query:
+        return jsonify([])
+
+    # Приводим к формату 8 цифр: R1200013 → 91200013, 91200013 → остаётся
+    clean_query = query.upper().replace("R", "9").lstrip("0")
+    if clean_query.isdigit() and len(clean_query) <= 8:
+        padded = clean_query.zfill(8)
+        matched = []
+        for kod, info in ZAGS_SPRAVKA.items():
+            if kod.endswith(padded):  # Совпадение по последним 8 цифрам
+                matched.append({
+                    "kod": kod,
+                    "name": info.get("name", "—"),
+                    "address": info.get("address", "—"),
+                    "tel": info.get("tel", "—")
+                })
+        return jsonify(matched)
+    return jsonify([])
 
 
 if __name__ == '__main__':
